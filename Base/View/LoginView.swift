@@ -19,6 +19,13 @@ struct LoginView: View {
     @State var createAccount: Bool = false
     @State var showError: Bool = false
     @State var errorMessage: String = ""
+    @State var isLoading: Bool = false
+    // MARK: USER DEFAULTS
+    @AppStorage("log_status") var logStatus: Bool = false
+    @AppStorage("user_id") var useruUID: String = ""
+    @AppStorage("user_name") var userNameStored: String = ""
+    @AppStorage("user_profile_url") var profileURL: URL?
+    
     
     var body: some View {
         VStack(spacing: 10){
@@ -72,6 +79,9 @@ struct LoginView: View {
         }
         .vAlign(.top)
         .padding(15)
+        .overlay(content: {
+          LoadingView(show: $isLoading)
+        })
         
         // MARK: REGISTER VIEW VIA SHEETS
         .fullScreenCover(isPresented: $createAccount){
@@ -79,6 +89,19 @@ struct LoginView: View {
         }
         // MARK: Displaying Alert
         .alert(errorMessage, isPresented: $showError, actions: {})
+    }
+    
+    // MARK: IF USER FOUND, THEN FETCHING USER DATA FORM FIRESTORE
+    func fetchUser() async throws {
+        guard let userID = Auth.auth().currentUser?.uid else { return }
+        let user = try await Firestore.firestore().collection("Users").document(userID).getDocument(as: User.self)
+        await MainActor.run(body:{
+            useruUID = userID
+            userNameStored = user.username
+            profileURL = user.userProfileURL
+            logStatus = true
+            
+        })
     }
     
     func resetPassword(){
@@ -93,10 +116,13 @@ struct LoginView: View {
     }
     
     func loginUser(){
+        isLoading = true
+        closeKyeboard()
         Task{
             do{
                 try await Auth.auth().signIn(withEmail: emailID, password: password)
                 print("User Found")
+                try await fetchUser()
             }catch{
                 await setError(error)
             }
@@ -109,6 +135,7 @@ struct LoginView: View {
         await MainActor.run(body: {
             errorMessage = error.localizedDescription
             showError.toggle()
+            isLoading = false
         })
     }
     
@@ -130,6 +157,7 @@ struct RegisterView: View {
     
     @State var showError: Bool = false
     @State var errorMessage: String = ""
+    @State var isLoading: Bool = false
     // MARK: USER DEFAULTS
     @AppStorage("log_status") var logStatus: Bool = false
     @AppStorage("user_id") var userID: String = ""
@@ -169,6 +197,9 @@ struct RegisterView: View {
         }
         .vAlign(.top)
         .padding(15)
+        .overlay(content: {
+            LoadingView(show: $isLoading)
+        })
         .photosPicker(isPresented: $showImagePicker, selection: $photoItem)
         .onChange(of: photoItem){ newValue in
             // Extract UI IMAG
@@ -246,6 +277,8 @@ struct RegisterView: View {
     
     
     func registerUser(){
+        isLoading = true
+        closeKyeboard()
         Task{
             do{
                 // STEP 01: creatung firebase account
@@ -284,6 +317,7 @@ struct RegisterView: View {
         await MainActor.run(body: {
             errorMessage = error.localizedDescription
             showError.toggle()
+            isLoading = false
         })
     }
     
@@ -297,6 +331,12 @@ struct LoginView_Previews: PreviewProvider {
 }
 
 extension View{
+    
+    // Close all keyboards
+    func closeKyeboard(){
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
+    
     
     // MARK: DISABLINGH WITH OPACITY
     func disableWithOpacity(_ condition: Bool) -> some View {
